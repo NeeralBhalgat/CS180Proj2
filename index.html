@@ -1,0 +1,824 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CS180 Project 2: Fun with Filters and Frequencies</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="site-header">
+    <nav>
+      <a href="#part-1-1">Part 1.1</a>
+      <a href="#part-1-2">Part 1.2</a>
+      <a href="#part-1-3">Part 1.3</a>
+      <a href="#part-2-1">Part 2.1</a>
+      <a href="#part-2-2">Part 2.2</a>
+      <a href="#part-2-3">Part 2.3</a>
+      <a href="#part-2-4">Part 2.4</a>
+    </nav>
+    <div class="header-copy">
+      <p class="eyebrow">CS180 Project 2</p>
+      <h1>Fun with Filters and Frequencies</h1>
+      <p>
+        This page documents my work with convolution, edge detection, image
+        sharpening, hybrid images, Gaussian and Laplacian stacks, and
+        multiresolution blending.
+      </p>
+    </div>
+  </header>
+
+  <main>
+    <section id="part-1-1" class="section">
+      <div class="section-heading">
+        <p class="eyebrow">Part 1.1</p>
+        <h2>Convolutions from Scratch</h2>
+      </div>
+
+      <p>
+        I wrote the convolution manually in two different ways. The first
+        version I wrote uses four nested loops: two loops that move across the
+        image, followed by two more loops that iterate across every
+        <code>(kx, ky)</code> pixel in the kernel. The second version still
+        loops over the image pixels, but we extract the matching image patch and
+        compute the entire kernel in one shot using vectorized operations. For
+        both implementations, I flipped the kernel before applying it. If we
+        didn't flip the kernel, this would have been a correlation operation and
+        not convolution.
+      </p>
+
+      <p>
+        I used zero padding so that the output image keeps the same height and
+        width as the input. To check that my code was doing the same operation
+        as SciPy, I compared my box-filtered result against
+        <code>scipy.signal.convolve2d</code> with <code>mode="same"</code>,
+        <code>boundary="fill"</code>, and <code>fillvalue=0</code>. Both manual
+        versions matched the SciPy output.
+      </p>
+
+      <pre><code>def firstconvimp(img, kernel):
+    flippedkernel = np.flip(kernel)
+    paddedimg = np.pad(img, ((kH//2,kH//2),(kW//2,kW//2)), mode="constant")
+
+    for x in range(H):
+        for y in range(W):
+            total = 0
+            for kx in range(kH):
+                for ky in range(kW):
+                    total += paddedimg[x + kx, y + ky] * flippedkernel[kx, ky]
+            output[x,y] = total</code></pre>
+
+      <pre><code>def secondconvimp(img, kernel):
+    flippedkernel = np.flip(kernel)
+    paddedimg = np.pad(img, ((kH//2,kH//2),(kW//2,kW//2)), mode="constant")
+
+    for x in range(H):
+        for y in range(W):
+            portion = paddedimg[x:x+kH, y:y+kW]
+            output[x,y] = np.sum(portion * flippedkernel)</code></pre>
+
+      <p>
+        The second implementation is cleaner because we automatically compute
+        the result through vectorized multiplication and sum operations. We are
+        able to get rid of the inner two kernel loops as a result. In terms of
+        runtime, the four-loop version is the slowest, followed by the two-loop
+        version, and the SciPy <code>convolve2d</code> function is the fastest.
+      </p>
+
+      <div class="image-grid three">
+        <figure>
+          <img src="assets/face_original.jpg" alt="Original portrait image">
+          <figcaption>Original image</figcaption>
+        </figure>
+        <figure>
+          <img src="assets/face_box_slow.jpg" alt="Box filtered image using the slow convolution implementation">
+          <figcaption>Box filter, four-loop convolution</figcaption>
+        </figure>
+        <figure>
+          <img src="assets/face_box_efficient.jpg" alt="Box filtered image using the efficient convolution implementation">
+          <figcaption>Box filter, vectorized inner step</figcaption>
+        </figure>
+      </div>
+
+      <div class="image-grid two">
+        <figure>
+          <img src="assets/face_dx.jpg" alt="Partial derivative in x for the portrait image">
+          <figcaption>Finite difference in x</figcaption>
+        </figure>
+        <figure>
+          <img src="assets/face_dy.jpg" alt="Partial derivative in y for the portrait image">
+          <figcaption>Finite difference in y</figcaption>
+        </figure>
+      </div>
+
+      <p>
+        The derivative filters behaved as expected. The X derivative filter led
+        to strong vertical changes in the output image. The Y derivative filter
+        led to strong horizontal changes in the output image.
+      </p>
+    </section>
+
+    <section id="part-1-2" class="section">
+      <div class="section-heading">
+        <p class="eyebrow">Part 1.2</p>
+        <h2>Finite Difference Operator</h2>
+      </div>
+
+      <p>
+        For the cameraman image, I applied the following convolutions:
+        <code>D_x = [1, 0, -1]</code> and
+        <code>D_y = [1, 0, -1]^T</code>. We can see that these derivative
+        filters show the intensity changes in the image, allowing us to see some
+        of the prominent edges. After applying these convolutions, I combined
+        them into a gradient magnitude image using
+        <code>sqrt(dx^2 + dy^2)</code>.
+      </p>
+
+      <div class="image-grid four">
+        <figure>
+          <img src="assets/cameraman_original.png" alt="Original cameraman image">
+          <figcaption>Original cameraman image</figcaption>
+        </figure>
+        <figure>
+          <img src="assets/cameraman_dx.jpg" alt="Cameraman partial derivative in x">
+          <figcaption>Partial derivative in x</figcaption>
+        </figure>
+        <figure>
+          <img src="assets/cameraman_dy.jpg" alt="Cameraman partial derivative in y">
+          <figcaption>Partial derivative in y</figcaption>
+        </figure>
+        <figure>
+          <img src="assets/cameraman_grad_mag.jpg" alt="Cameraman gradient magnitude image">
+          <figcaption>Gradient magnitude</figcaption>
+        </figure>
+      </div>
+
+      <p>
+        To turn the gradient magnitude into an edge image, I tried many
+        different thresholds. I realized that with lower thresholds, the image
+        felt more noisy since some of the weak texture changes in the grass and
+        background were being highlighted. A high threshold helped solve this,
+        but if the threshold was too high, then there was a chance some edges
+        would not be highlighted anymore. I tried several thresholds and settled
+        on <strong>0.20</strong>. I chose this threshold because it preserves
+        the main silhouette, camera, tripod, and building edges while removing
+        many of the isolated grass and background responses. However, it is not
+        perfect and some faint edges are lost. This was the best tradeoff to me
+        between finding real contours and not labeling too much noise as an
+        edge.
+      </p>
+
+      <div class="image-grid single">
+        <figure>
+          <img src="assets/cameraman_edges.jpg" alt="Binarized cameraman edge image using threshold 0.20">
+          <figcaption>Binarized edge image with threshold = 0.20</figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <section id="part-1-3" class="section">
+      <div class="section-heading">
+        <p class="eyebrow">Part 1.3</p>
+        <h2>Derivative of Gaussian Filter</h2>
+      </div>
+
+      <p>
+        The finite difference result was sensitive to the threshold because the
+        x and y derivative filters respond to small intensity changes and noise.
+        As a result, the next step was to smooth the image before taking
+        derivatives to remove some of the noise. I used OpenCV's 1D Gaussian
+        kernel and multiplied it by its transpose to make a 2D filter. I
+        convolved the cameraman image with this filter and then repeated the same
+        steps from Part 1.2.
+      </p>
+
+      <div class="image-grid four">
+        <figure>
+          <img src="assets/blurreddx.jpg" alt="X derivative after Gaussian blur">
+          <figcaption>Blurred image, derivative in x</figcaption>
+        </figure>
+        <figure>
+          <img src="assets/blurreddy.jpg" alt="Y derivative after Gaussian blur">
+          <figcaption>Blurred image, derivative in y</figcaption>
+        </figure>
+        <figure>
+          <img src="assets/gradmagblurred.jpg" alt="Gradient magnitude after Gaussian blur">
+          <figcaption>Gradient magnitude after smoothing</figcaption>
+        </figure>
+        <figure>
+          <img src="assets/edges_blurred.jpg" alt="Edges after Gaussian blur">
+          <figcaption>Edges after smoothing, threshold = 0.08</figcaption>
+        </figure>
+      </div>
+
+      <p>
+        The blurred version is much cleaner. The edges are thicker because the
+        Gaussian blur smooths out each pixel based on its center and neighbors,
+        which reduces some of the noise. The random-looking speckles are reduced
+        a lot after smoothing.
+      </p>
+
+      <p>
+        Because convolutions are associative and commutative, we also convolved
+        the Gaussian filter with <code>D_x</code> and <code>D_y</code> directly.
+        Then we applied this to the image and got the same result.
+      </p>
+
+      <div class="image-grid two filters">
+        <figure>
+          <img src="assets/dog_x_filter.jpg" alt="Derivative of Gaussian filter in x">
+          <figcaption>Derivative of Gaussian filter in x</figcaption>
+        </figure>
+        <figure>
+          <img src="assets/dog_y_filter.jpg" alt="Derivative of Gaussian filter in y">
+          <figcaption>Derivative of Gaussian filter in y</figcaption>
+        </figure>
+      </div>
+
+      <div class="image-grid four">
+        <figure>
+          <img src="assets/dog_dx.jpg" alt="Image convolved with derivative of Gaussian in x">
+          <figcaption>DoG result in x</figcaption>
+        </figure>
+        <figure>
+          <img src="assets/dog_dy.jpg" alt="Image convolved with derivative of Gaussian in y">
+          <figcaption>DoG result in y</figcaption>
+        </figure>
+        <figure>
+          <img src="assets/dog_gradmag.jpg" alt="Gradient magnitude from derivative of Gaussian filters">
+          <figcaption>DoG gradient magnitude</figcaption>
+        </figure>
+        <figure>
+          <img src="assets/dog_edges.jpg" alt="Edge image from derivative of Gaussian filters">
+          <figcaption>DoG edge image</figcaption>
+        </figure>
+      </div>
+
+      <p>
+        Overall, smoothing before edge detection made the output easier to read.
+        The finite difference image is sharper but responds to noise and is not
+        as clean. The lower half of the image is a lot cleaner and more
+        well-defined with the derivative of Gaussian filters.
+      </p>
+    </section>
+
+    <section id="part-2-1" class="section">
+      <div class="section-heading">
+        <p class="eyebrow">Part 2.1</p>
+        <h2>Image Sharpening</h2>
+      </div>
+
+      <p>
+        Unsharp masking works by first blurring the image to remove
+        high-frequency details. Then I subtract the blurred image from the
+        original image to get the high frequencies, which are mostly edges and
+        fine details. Finally, I add some amount of those high frequencies back
+        to the original image using an alpha constant to make the image look
+        sharper. In code, the main step was
+        <code>sharpened = image + alpha * (image - blurred)</code>.
+      </p>
+
+      <p>
+        I used a 9 by 9 Gaussian filter with sigma 1. After experimentation, I
+        realized these parameters kept the blur strong enough to separate edges
+        from smoother regions without completely washing out the image.
+      </p>
+
+      <div class="image-grid four">
+        <figure>
+          <img src="assets/taj_original.jpg" alt="Original Taj Mahal image">
+          <figcaption>Original Taj Mahal image</figcaption>
+        </figure>
+        <figure>
+          <img src="assets/tajblurred.jpg" alt="Blurred Taj Mahal image">
+          <figcaption>Blurred with Gaussian filter</figcaption>
+        </figure>
+        <figure>
+          <img src="assets/tajdiff.jpg" alt="High-frequency detail image from the Taj Mahal">
+          <figcaption>High-frequency detail layer</figcaption>
+        </figure>
+        <figure>
+          <img src="assets/tajsharpened.jpg" alt="Sharpened Taj Mahal image">
+          <figcaption>Sharpened result, alpha = 1.5</figcaption>
+        </figure>
+      </div>
+
+      <p>
+        The Taj Mahal example shows the sharpening most clearly. The dome and
+        windows look sharper. There is much more local contrast in this new
+        image. This makes the image look more prominent, but if the image looks
+        too harsh compared to the original, it comes off as artificial, which is
+        a tradeoff.
+      </p>
+
+      <div class="image-grid three">
+        <figure>
+          <img src="assets/empirestate_original.jpg" alt="Original Empire State Building image">
+          <figcaption>Original architecture image</figcaption>
+        </figure>
+        <figure>
+          <img src="assets/empirestateblurred.jpg" alt="Blurred Empire State Building image">
+          <figcaption>Blurred version</figcaption>
+        </figure>
+        <figure>
+          <img src="assets/empirestatesharpened.jpg" alt="Sharpened Empire State Building image">
+          <figcaption>Sharpened result, alpha = 1.5</figcaption>
+        </figure>
+      </div>
+
+      <div class="image-grid three">
+        <figure>
+          <img src="assets/leaf_original.jpg" alt="Original close-up leaf texture">
+          <figcaption>Original leaf detail image</figcaption>
+        </figure>
+        <figure>
+          <img src="assets/leafblurred.jpg" alt="Blurred close-up leaf texture">
+          <figcaption>Blurred version</figcaption>
+        </figure>
+        <figure>
+          <img src="assets/leafsharpened.jpg" alt="Sharpened close-up leaf texture">
+          <figcaption>Sharpened result, alpha = 1.5</figcaption>
+        </figure>
+      </div>
+
+      <p>
+        I also tried different alpha values on the flower image. A small alpha
+        kept the result close to the original. Larger alpha values made the
+        textures, edges, and small features like the raindrops stand out more.
+        With alpha = 10, the petals look too folded and crunchy, and the center
+        is too intense in relation to the petals. Thus, the image starts to feel
+        less natural.
+      </p>
+
+      <div class="image-grid four">
+        <figure>
+          <img src="assets/flower_original.jpg" alt="Original yellow flower image">
+          <figcaption>Original flower image</figcaption>
+        </figure>
+        <figure>
+          <img src="assets/flower_alpha_1sharpened.jpg" alt="Flower sharpened with alpha 1">
+          <figcaption>Sharpened, alpha = 1</figcaption>
+        </figure>
+        <figure>
+          <img src="assets/flower_alpha_5sharpened.jpg" alt="Flower sharpened with alpha 5">
+          <figcaption>Sharpened, alpha = 5</figcaption>
+        </figure>
+        <figure>
+          <img src="assets/flower_alpha_10sharpened.jpg" alt="Flower sharpened with alpha 10">
+          <figcaption>Sharpened, alpha = 10</figcaption>
+        </figure>
+      </div>
+
+      <p>
+        The overall pattern was pretty consistent: sharpening helps when the
+        image has good texture or clean edges. Pushing alpha too far makes the
+        result look overprocessed instead of sharper though.
+      </p>
+    </section>
+
+    <section id="part-2-2" class="section">
+      <div class="section-heading">
+        <p class="eyebrow">Part 2.2</p>
+        <h2>Hybrid Images</h2>
+      </div>
+
+      <p>
+        To make the hybrid images, I combined the low frequencies from one image
+        with the high frequencies of another image. I used the alignment code to
+        line up the corresponding points, usually the left eye and right eye.
+      </p>
+
+      <p>
+        The low-frequency image is the one that should dominate from far away,
+        so I blurred it with a Gaussian filter. The high-frequency image is the
+        one that should be visible close up, so I subtracted the blurred version
+        of it from the original. I used a 9 by 9 Gaussian kernel with
+        <code>sigma1 = 5</code> for the low-pass image, and
+        <code>sigma2 = 4</code> for the high-pass image. I chose these cutoff
+        values after testing smaller and larger sigmas. Smaller values left too
+        much high frequency texture in the low pass image. Larger values
+        made the high pass layer too weak and washed out. My initializations kept
+        the broad face structure visible from far away while preserving enough
+        of Einstein's hair, wrinkles, and mustache up close. Hence, I thought this was a good tradeoff.
+      </p>
+
+      <div class="image-grid three">
+        <figure>
+          <img src="assets/me_original.jpg" alt="Original image of me">
+          <figcaption>Low-frequency source: me</figcaption>
+        </figure>
+        <figure>
+          <img src="assets/einstein_original.jpeg" alt="Original Einstein image">
+          <figcaption>High-frequency source: Einstein</figcaption>
+        </figure>
+        <figure>
+          <img src="assets/me_einstein_hybrid.jpg" alt="Hybrid image of me and Einstein">
+          <figcaption><strong>Final Result Hybrid Image</strong></figcaption>
+        </figure>
+      </div>
+
+      <div class="image-grid two">
+        <figure>
+          <img src="assets/me_aligned.jpg" alt="Aligned low-frequency image of me">
+          <figcaption>Aligned low-frequency image</figcaption>
+        </figure>
+        <figure>
+          <img src="assets/einstein_aligned.jpg" alt="Aligned high-frequency image of Einstein">
+          <figcaption>Aligned high-frequency image</figcaption>
+        </figure>
+      </div>
+
+      <div class="image-grid three">
+        <figure>
+          <img src="assets/me_fft.jpg" alt="Fourier transform of my image">
+          <figcaption>FFT of low-frequency source</figcaption>
+        </figure>
+        <figure>
+          <img src="assets/einstein_fft.jpg" alt="Fourier transform of Einstein image">
+          <figcaption>FFT of high-frequency source</figcaption>
+        </figure>
+        <figure>
+          <img src="assets/me_einstein_hybrid_fft.jpg" alt="Fourier transform of me and Einstein hybrid image">
+          <figcaption>FFT of hybrid result</figcaption>
+        </figure>
+      </div>
+
+      <div class="image-grid four">
+        <figure>
+          <img src="assets/me_low_filtered.jpg" alt="Low-pass filtered image of me">
+          <figcaption>Low-pass result, sigma1 = 5</figcaption>
+        </figure>
+        <figure>
+          <img src="assets/me_low_fft.jpg" alt="Fourier transform of low-pass filtered image">
+          <figcaption>FFT after low-pass filtering</figcaption>
+        </figure>
+        <figure>
+          <img src="assets/einstein_high_filtered.jpg" alt="High-pass filtered Einstein image">
+          <figcaption>High-pass result, sigma2 = 4</figcaption>
+        </figure>
+        <figure>
+          <img src="assets/einstein_high_fft.jpg" alt="Fourier transform of high-pass filtered image">
+          <figcaption>FFT after high-pass filtering</figcaption>
+        </figure>
+      </div>
+
+      <p>
+        I think this is my clearest hybrid result. From far away, the broad
+        structure comes from my selfie. Up close, you can see Einstein's crazy
+        hair, wrinkles, and mustache. The Fourier plots reinforce this idea: the
+        low-frequency image has most of its energy concentrated near the center,
+        while Einstein contributes more fine detail away from the center.
+      </p>
+
+      <div class="image-grid three">
+        <figure>
+          <img src="assets/haliburton_original.jpg" alt="Original Haliburton image">
+          <figcaption>Low-frequency source: Haliburton</figcaption>
+        </figure>
+        <figure>
+          <img src="assets/tiger_original.jpeg" alt="Original tiger image">
+          <figcaption>High-frequency source: tiger</figcaption>
+        </figure>
+        <figure>
+          <img src="assets/haliburton_tiger_hybrid.jpg" alt="Hybrid image of Haliburton and a tiger">
+          <figcaption>Hybrid image</figcaption>
+        </figure>
+      </div>
+
+      <div class="image-grid three">
+        <figure>
+          <img src="assets/nutmeg_original.jpg" alt="Original Nutmeg image">
+          <figcaption>Low-frequency source: Nutmeg</figcaption>
+        </figure>
+        <figure>
+          <img src="assets/derek_original.jpg" alt="Original Derek image">
+          <figcaption>High-frequency source: Derek</figcaption>
+        </figure>
+        <figure>
+          <img src="assets/derek_nutmeg_hybrid.jpg" alt="Hybrid image of Nutmeg and Derek">
+          <figcaption>Hybrid image</figcaption>
+        </figure>
+      </div>
+
+      <p>
+        The other two examples also turned out well.
+      </p>
+    </section>
+
+    <section id="part-2-3" class="section">
+      <div class="section-heading">
+        <p class="eyebrow">Part 2.3</p>
+        <h2>Gaussian and Laplacian Stacks</h2>
+      </div>
+
+      <p>
+        For this part, I built Gaussian and Laplacian stacks. We use stacks
+        instead of pyramids because we do not need to downsample, and we can keep
+        every image at the same size, with each level just being a more blurred
+        version of the previous one. The Gaussian stack at each level contains a
+        more blurred version of the image. The Laplacian stack stores the detail
+        that disappears between neighboring Gaussian levels. I used four levels.
+        The first row contains the finer detail, and the final row contains the
+        low-frequency base that is kind of the foundation of the image. For the
+        Oraple column, I took the left half from the apple Laplacian level and
+        the right half from the orange Laplacian level and merged them together.
+        The Gaussian stack shows the same images becoming smoother at each level
+        without changing size, and the Oraple Gaussian column uses a vertical
+        half-and-half mask.
+      </p>
+
+      <div class="image-grid three">
+        <figure>
+          <img src="assets/apple_gaussian_0.jpg" alt="Apple Gaussian stack level 0">
+          <figcaption>Apple Gaussian L0</figcaption>
+        </figure>
+        <figure>
+          <img src="assets/orange_gaussian_0.jpg" alt="Orange Gaussian stack level 0">
+          <figcaption>Orange Gaussian L0</figcaption>
+        </figure>
+        <figure>
+          <img src="assets/oraple_gaussian_0.jpg" alt="Oraple Gaussian stack level 0">
+          <figcaption>Oraple Gaussian L0</figcaption>
+        </figure>
+      </div>
+
+      <div class="image-grid three">
+        <figure>
+          <img src="assets/apple_gaussian_1.jpg" alt="Apple Gaussian stack level 1">
+          <figcaption>Apple Gaussian L1</figcaption>
+        </figure>
+        <figure>
+          <img src="assets/orange_gaussian_1.jpg" alt="Orange Gaussian stack level 1">
+          <figcaption>Orange Gaussian L1</figcaption>
+        </figure>
+        <figure>
+          <img src="assets/oraple_gaussian_1.jpg" alt="Oraple Gaussian stack level 1">
+          <figcaption>Oraple Gaussian L1</figcaption>
+        </figure>
+      </div>
+
+      <div class="image-grid three">
+        <figure>
+          <img src="assets/apple_gaussian_2.jpg" alt="Apple Gaussian stack level 2">
+          <figcaption>Apple Gaussian L2</figcaption>
+        </figure>
+        <figure>
+          <img src="assets/orange_gaussian_2.jpg" alt="Orange Gaussian stack level 2">
+          <figcaption>Orange Gaussian L2</figcaption>
+        </figure>
+        <figure>
+          <img src="assets/oraple_gaussian_2.jpg" alt="Oraple Gaussian stack level 2">
+          <figcaption>Oraple Gaussian L2</figcaption>
+        </figure>
+      </div>
+
+      <div class="image-grid three">
+        <figure>
+          <img src="assets/apple_gaussian_3.jpg" alt="Apple Gaussian stack level 3">
+          <figcaption>Apple Gaussian L3</figcaption>
+        </figure>
+        <figure>
+          <img src="assets/orange_gaussian_3.jpg" alt="Orange Gaussian stack level 3">
+          <figcaption>Orange Gaussian L3</figcaption>
+        </figure>
+        <figure>
+          <img src="assets/oraple_gaussian_3.jpg" alt="Oraple Gaussian stack level 3">
+          <figcaption>Oraple Gaussian L3</figcaption>
+        </figure>
+      </div>
+
+      <p>
+        The Laplacian stack below isolates what disappears between neighboring
+        Gaussian levels. This is the version used to reconstruct the blended
+        image from its fine detail all the way up to the general base details.
+      </p>
+
+      <div class="image-grid three">
+        <figure>
+          <img src="assets/apple_original.jpeg" alt="Original apple image">
+          <figcaption>Apple input</figcaption>
+        </figure>
+        <figure>
+          <img src="assets/orange_original.jpeg" alt="Original orange image">
+          <figcaption>Orange input</figcaption>
+        </figure>
+        <figure>
+          <img src="assets/oraple_laplacian_3.jpg" alt="Coarse oraple base level">
+          <figcaption>Coarse combined base</figcaption>
+        </figure>
+      </div>
+
+      <div class="image-grid three">
+        <figure>
+          <img src="assets/apple_laplacian_0.jpg" alt="Apple Laplacian level 0">
+          <figcaption>Apple L0</figcaption>
+        </figure>
+        <figure>
+          <img src="assets/orange_laplacian_0.jpg" alt="Orange Laplacian level 0">
+          <figcaption>Orange L0</figcaption>
+        </figure>
+        <figure>
+          <img src="assets/oraple_laplacian_0.jpg" alt="Oraple Laplacian level 0">
+          <figcaption>Oraple L0</figcaption>
+        </figure>
+      </div>
+
+      <div class="image-grid three">
+        <figure>
+          <img src="assets/apple_laplacian_1.jpg" alt="Apple Laplacian level 1">
+          <figcaption>Apple L1</figcaption>
+        </figure>
+        <figure>
+          <img src="assets/orange_laplacian_1.jpg" alt="Orange Laplacian level 1">
+          <figcaption>Orange L1</figcaption>
+        </figure>
+        <figure>
+          <img src="assets/oraple_laplacian_1.jpg" alt="Oraple Laplacian level 1">
+          <figcaption>Oraple L1</figcaption>
+        </figure>
+      </div>
+
+      <div class="image-grid three">
+        <figure>
+          <img src="assets/apple_laplacian_2.jpg" alt="Apple Laplacian level 2">
+          <figcaption>Apple L2</figcaption>
+        </figure>
+        <figure>
+          <img src="assets/orange_laplacian_2.jpg" alt="Orange Laplacian level 2">
+          <figcaption>Orange L2</figcaption>
+        </figure>
+        <figure>
+          <img src="assets/oraple_laplacian_2.jpg" alt="Oraple Laplacian level 2">
+          <figcaption>Oraple L2</figcaption>
+        </figure>
+      </div>
+
+      <div class="image-grid three">
+        <figure>
+          <img src="assets/apple_laplacian_3.jpg" alt="Apple Laplacian level 3">
+          <figcaption>Apple L3</figcaption>
+        </figure>
+        <figure>
+          <img src="assets/orange_laplacian_3.jpg" alt="Orange Laplacian level 3">
+          <figcaption>Orange L3</figcaption>
+        </figure>
+        <figure>
+          <img src="assets/oraple_laplacian_3.jpg" alt="Oraple Laplacian level 3">
+          <figcaption>Oraple L3</figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <section id="part-2-4" class="section">
+      <div class="section-heading">
+        <p class="eyebrow">Part 2.4</p>
+        <h2>Multiresolution Blending</h2>
+      </div>
+
+      <p>
+        For Part 2.4, I worked on multiresolution blending. Part 2.3 showed that
+        the Laplacian stack is useful because it stores image detail at different
+        scales. For blending, I realized that we need to use the same stack idea,
+        but instead of cutting each level using a hard mask, we can make a
+        Gaussian stack for the mask. That way, the original mask can be sharp,
+        but the blurred mask levels make the transition wider at coarser
+        frequencies, which is what removes the obvious split between the photos.
+      </p>
+
+      <p>
+        I first tested the method with the classic apple and orange example. The
+        mask is a simple step function because it is a vertical seam mask. The
+        left half is one, so it comes from the apple. The right half is zero, so
+        it comes from the orange. The Gaussian stack of the mask softens the
+        transition near the middle instead of having a hard seam cut.
+      </p>
+
+      <div class="image-grid four">
+        <figure>
+          <img src="assets/apple_original.jpeg" alt="Original apple image">
+          <figcaption>Apple input</figcaption>
+        </figure>
+        <figure>
+          <img src="assets/orange_original.jpeg" alt="Original orange image">
+          <figcaption>Orange input</figcaption>
+        </figure>
+        <figure>
+          <img src="assets/oraple_mask.jpg" alt="Vertical half mask for the apple and orange blend">
+          <figcaption>Vertical seam mask</figcaption>
+        </figure>
+        <figure>
+          <img src="assets/oraple.jpg" alt="Multiresolution blend of apple and orange">
+          <figcaption>Oraple blend</figcaption>
+        </figure>
+      </div>
+
+      <p>
+        After the Oraple worked, I tried two irregular masks. The first mask is
+        a wavy irregular mask between a zebra and a horse.
+      </p>
+
+      <div class="image-grid four">
+        <figure>
+          <img src="assets/zebra_original.jpg" alt="Original zebra image">
+          <figcaption>Zebra input</figcaption>
+        </figure>
+        <figure>
+          <img src="assets/horse_original.jpg" alt="Original horse image">
+          <figcaption>Horse input</figcaption>
+        </figure>
+        <figure>
+          <img src="assets/zehorse_mask.jpg" alt="Wavy mask used for the zebra and horse blend">
+          <figcaption>Irregular wavy mask</figcaption>
+        </figure>
+        <figure>
+          <img src="assets/zehorse.jpg" alt="Blended zebra and horse image">
+          <figcaption>Zebra/horse blend</figcaption>
+        </figure>
+      </div>
+
+      <p>
+        For my second irregular blend, I switched to two flowers on dark
+        backgrounds, and I used an irregular blob mask.
+      </p>
+
+      <div class="image-grid four">
+        <figure>
+          <img src="assets/gerbera_pink_input.jpg" alt="First grayscale gerbera input">
+          <figcaption>Gerbera input A</figcaption>
+        </figure>
+        <figure>
+          <img src="assets/gerbera_red_input.jpg" alt="Second grayscale gerbera input">
+          <figcaption>Gerbera input B</figcaption>
+        </figure>
+        <figure>
+          <img src="assets/gerbera_mask.jpg" alt="Organic blob mask used for the gerbera blend">
+          <figcaption>Irregular blob mask</figcaption>
+        </figure>
+        <figure>
+          <img src="assets/gerbera_blend.jpg" alt="Multiresolution blend of two gerbera images">
+          <figcaption>Gerbera blend</figcaption>
+        </figure>
+      </div>
+
+      <p>
+        The blob mask is not a simple line. Its boundary changes with angle, and
+        it is created using sinusoidal perturbations. I've shown the stack levels
+        below so that you can see how the fine details, mid-level details, and
+        coarse base are reconstructed overall.
+      </p>
+
+      <div class="image-grid three">
+        <figure>
+          <img src="assets/gerbera_pink_masked.jpg" alt="First gerbera multiplied by the irregular blob mask">
+          <figcaption>Input A multiplied by mask</figcaption>
+        </figure>
+        <figure>
+          <img src="assets/gerbera_red_masked.jpg" alt="Second gerbera multiplied by the inverse irregular blob mask">
+          <figcaption>Input B multiplied by inverse mask</figcaption>
+        </figure>
+        <figure>
+          <img src="assets/gerbera_blend.jpg" alt="Final gerbera multiresolution blend">
+          <figcaption>Final reconstructed blend</figcaption>
+        </figure>
+      </div>
+
+      <div class="image-grid four">
+        <figure>
+          <img src="assets/gerbera_blended_stack_0.jpg" alt="Gerbera blended stack level 0">
+          <figcaption>Blended stack L0: finest detail</figcaption>
+        </figure>
+        <figure>
+          <img src="assets/gerbera_blended_stack_1.jpg" alt="Gerbera blended stack level 1">
+          <figcaption>Blended stack L1</figcaption>
+        </figure>
+        <figure>
+          <img src="assets/gerbera_blended_stack_2.jpg" alt="Gerbera blended stack level 2">
+          <figcaption>Blended stack L2</figcaption>
+        </figure>
+        <figure>
+          <img src="assets/gerbera_blended_stack_3.jpg" alt="Gerbera blended stack level 3">
+          <figcaption>Blended stack L3: coarse base</figcaption>
+        </figure>
+      </div>
+
+      <p>
+        The main thing I noticed is that the mask matters as much as the images.
+        A rigid mask can look like it is dividing the images, and a good mask can
+        give the blended effect.
+      </p>
+
+      <h3>Most Important Thing I Learned</h3>
+
+      <p>
+        The most important thing I learned from the project is that there are
+        already lots of mathematical operations we can do to make images contain
+        more/less detail. Sometimes I ask Gemini to merge things together and
+        always am confused why it can't smooth things out or make it look nice.
+        Through this project, I've understood that preprocessing the images with
+        these convolutions can help and make it easier to do these hard image
+        tasks.
+      </p>
+    </section>
+  </main>
+</body>
+</html>
